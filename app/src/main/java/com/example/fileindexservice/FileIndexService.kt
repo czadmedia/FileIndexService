@@ -31,15 +31,17 @@ class FileIndexService(
 
     fun index(paths: List<Path>) {
         println("Index roots: " + paths.map { it.toAbsolutePath() })
-        paths.forEach { p ->
-            walk(p).forEach { f -> scheduleIndex(f) }
+        paths.forEach { path ->
+            walk(path).forEach { p -> scheduleIndex(p) }
         }
     }
 
     fun startWatching(paths: List<Path>) {
         println("Start Watching roots: " + paths.map { it.toAbsolutePath() })
         ensureWatchService()
-        paths.forEach { p -> if (Files.isDirectory(p)) registerAll(p) else registerParentOfFile(p) }
+
+        paths.forEach { path -> if (Files.isDirectory(path)) registerAll(path) else registerParentOfFile(path) }
+
         if (watcherRunning.compareAndSet(false, true)) {
             watcherThread = Thread(this::watchLoop, "FileIndexService-Watcher").apply {
                 isDaemon = true; start()
@@ -55,7 +57,7 @@ class FileIndexService(
         return set.toSet()
     }
 
-    fun dumpIndex(): Map<String, Set<Path>> = inverted.mapValues { (_, s) -> s.toSet() }
+    fun dumpIndex(): Map<String, Set<Path>> = inverted.mapValues { (_, set) -> set.toSet() }
 
     override fun close() {
         watcherRunning.set(false)
@@ -77,23 +79,23 @@ class FileIndexService(
         val newTokens = tokenizer.tokens(text).toSet()
         val oldTokens = fileTokens.put(path, newTokens)
 
-        if (oldTokens != null) for (t in oldTokens - newTokens) {
-            inverted[t]?.let { set ->
+        if (oldTokens != null) for (token in oldTokens - newTokens) {
+            inverted[token]?.let { set ->
                 set.remove(path)
-                if (set.isEmpty()) inverted.remove(t, set)
+                if (set.isEmpty()) inverted.remove(token, set)
             }
         }
 
-        for (t in newTokens - (oldTokens ?: emptySet()).toSet()) {
-            val set = inverted.computeIfAbsent(t) { ConcurrentHashMap.newKeySet() }
+        for (token in newTokens - (oldTokens ?: emptySet()).toSet()) {
+            val set = inverted.computeIfAbsent(token) { ConcurrentHashMap.newKeySet() }
             set.add(path)
         }
     }
 
     private fun removeFile(path: Path) {
         val tokens = fileTokens.remove(path) ?: return
-        for (t in tokens) {
-            inverted[t]?.let { set -> set.remove(path); if (set.isEmpty()) inverted.remove(t, set) }
+        for (token in tokens) {
+            inverted[token]?.let { set -> set.remove(path); if (set.isEmpty()) inverted.remove(token, set) }
         }
     }
 
@@ -116,13 +118,15 @@ class FileIndexService(
     private fun register(dir: Path) {
         if (!Files.isDirectory(dir)) return
         val ws = watchService ?: return
+
         val key = dir.register(ws, ENTRY_CREATE, ENTRY_MODIFY, ENTRY_DELETE)
         keyToDir[key] = dir
+
         println("📁 Registered: ${dir.toAbsolutePath()}")
     }
 
     private fun registerAll(start: Path) {
-        Files.walk(start).use { s -> s.filter { Files.isDirectory(it) }.forEach { register(it) } }
+        Files.walk(start).use { stream -> stream.filter { Files.isDirectory(it) }.forEach { register(it) } }
     }
 
     private fun registerParentOfFile(file: Path) {
@@ -134,14 +138,19 @@ class FileIndexService(
         val ws = watchService ?: return
         while (watcherRunning.get()) {
             val key = try { ws.take() } catch (_: InterruptedException) { break } catch (_: ClosedWatchServiceException) { break }
-            val dir = keyToDir[key]
-            if (dir == null) { key.reset(); continue }
+
+            val directory = keyToDir[key]
+            if (directory == null) { key.reset(); continue }
+
             for (event in key.pollEvents()) {
                 val kind = event.kind()
+
                 if (kind == OVERFLOW) continue
+
                 @Suppress("UNCHECKED_CAST")
                 val e = event as WatchEvent<Path>
-                val child = dir.resolve(e.context())
+                val child = directory.resolve(e.context())
+
                 when (kind) {
                     ENTRY_CREATE -> {
                         if (Files.isDirectory(child)) {
