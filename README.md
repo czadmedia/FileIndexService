@@ -66,10 +66,10 @@ This will create a distribution under:
 
 You can copy this entire folder anywhere you like, add the bin/ folder to your PATH, and then run:
 
-`fileindexservice --watch /some/dir`
+`fileindexservice/bin/fileindexservice --watch /some/dir`
 
 or
 
-`fileindexservice /test`
+`fileindexservice/bin/fileindexservice test/`
 
 This makes the tool usable from any directory, not just inside the Gradle project.
