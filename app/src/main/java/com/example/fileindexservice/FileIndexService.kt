@@ -78,22 +78,22 @@ class FileIndexService(
         val oldTokens = fileTokens.put(path, newTokens)
 
         if (oldTokens != null) for (t in oldTokens - newTokens) {
-            inverted[t]?.let { set ->
-                set.remove(path)
-                if (set.isEmpty()) inverted.remove(t, set)
+            inverted[t]?.let { paths ->
+                paths.remove(path)
+                if (paths.isEmpty()) inverted.remove(t, paths)
             }
         }
 
         for (t in newTokens - (oldTokens ?: emptySet()).toSet()) {
-            val set = inverted.computeIfAbsent(t) { ConcurrentHashMap.newKeySet() }
-            set.add(path)
+            val paths = inverted.computeIfAbsent(t) { ConcurrentHashMap.newKeySet() }
+            paths.add(path)
         }
     }
 
     private fun removeFile(path: Path) {
         val tokens = fileTokens.remove(path) ?: return
         for (t in tokens) {
-            inverted[t]?.let { set -> set.remove(path); if (set.isEmpty()) inverted.remove(t, set) }
+            inverted[t]?.let { paths -> paths.remove(path); if (paths.isEmpty()) inverted.remove(t, paths) }
         }
     }
 
@@ -101,8 +101,8 @@ class FileIndexService(
         if (Files.isRegularFile(path)) {
             yield(path)
         } else if (Files.isDirectory(path)) {
-            Files.walk(path).use { stream ->
-                for (p in stream) {
+            Files.walk(path).use { pathStream ->
+                for (p in pathStream) {
                     yield(p)
                 }
             }
@@ -122,7 +122,7 @@ class FileIndexService(
     }
 
     private fun registerAll(start: Path) {
-        Files.walk(start).use { s -> s.filter { Files.isDirectory(it) }.forEach { register(it) } }
+        Files.walk(start).use { pathStream -> pathStream.filter { Files.isDirectory(it) }.forEach { register(it) } }
     }
 
     private fun registerParentOfFile(file: Path) {
