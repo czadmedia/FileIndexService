@@ -40,7 +40,11 @@ class FileIndexService(
         println("Start Watching roots: " + paths.map { it.toAbsolutePath() })
         ensureWatchService()
 
-        paths.forEach { path -> if (Files.isDirectory(path)) registerAll(path) else registerParentOfFile(path) }
+        paths.forEach { path ->
+            if (Files.isDirectory(path)) registerAll(path) else registerParentOfFile(
+                path
+            )
+        }
 
         if (watcherRunning.compareAndSet(false, true)) {
             watcherThread = Thread(this::watchLoop, "FileIndexService-Watcher").apply {
@@ -53,15 +57,18 @@ class FileIndexService(
         if (input.isBlank()) return emptySet()
 
         val norm = tokenizer.normalizeSingleToken(input)
-        val set = inverted[norm] ?: return emptySet()
-        return set.toSet()
+        val paths = inverted[norm] ?: return emptySet()
+        return paths.toSet()
     }
 
-    fun dumpIndex(): Map<String, Set<Path>> = inverted.mapValues { (_, set) -> set.toSet() }
+    fun dumpIndex(): Map<String, Set<Path>> = inverted.mapValues { (_, paths) -> paths.toSet() }
 
     override fun close() {
         watcherRunning.set(false)
-        try { watchService?.close() } catch (_: IOException) {}
+        try {
+            watchService?.close()
+        } catch (_: IOException) {
+        }
         watcherThread?.interrupt()
         pool.shutdownNow()
     }
@@ -71,31 +78,41 @@ class FileIndexService(
         pool.submit { safeIndex(path) }
     }
 
-    private fun safeIndex(path: Path) = try { indexFile(path) } catch (_: Throwable) {}
+    private fun safeIndex(path: Path) = try {
+        indexFile(path)
+    } catch (_: Throwable) {
+    }
 
     private fun indexFile(path: Path) {
-        if (!Files.exists(path) || !path.isRegularFile()) { removeFile(path); return }
+        if (!Files.exists(path) || !path.isRegularFile()) {
+            removeFile(path); return
+        }
         val text = Files.newBufferedReader(path).use { it.readText() }
         val newTokens = tokenizer.tokens(text).toSet()
         val oldTokens = fileTokens.put(path, newTokens)
 
         if (oldTokens != null) for (token in oldTokens - newTokens) {
-            inverted[token]?.let { set ->
-                set.remove(path)
-                if (set.isEmpty()) inverted.remove(token, set)
+            inverted[token]?.let { paths ->
+                paths.remove(path)
+                if (paths.isEmpty()) inverted.remove(token, paths)
             }
         }
 
         for (token in newTokens - (oldTokens ?: emptySet()).toSet()) {
-            val set = inverted.computeIfAbsent(token) { ConcurrentHashMap.newKeySet() }
-            set.add(path)
+            val paths = inverted.computeIfAbsent(token) { ConcurrentHashMap.newKeySet() }
+            paths.add(path)
         }
     }
 
     private fun removeFile(path: Path) {
         val tokens = fileTokens.remove(path) ?: return
         for (token in tokens) {
-            inverted[token]?.let { set -> set.remove(path); if (set.isEmpty()) inverted.remove(token, set) }
+            inverted[token]?.let { paths ->
+                paths.remove(path); if (paths.isEmpty()) inverted.remove(
+                token,
+                paths
+            )
+            }
         }
     }
 
@@ -103,8 +120,8 @@ class FileIndexService(
         if (Files.isRegularFile(path)) {
             yield(path)
         } else if (Files.isDirectory(path)) {
-            Files.walk(path).use { stream ->
-                for (p in stream) {
+            Files.walk(path).use { pathStream ->
+                for (p in pathStream) {
                     yield(p)
                 }
             }
@@ -126,7 +143,8 @@ class FileIndexService(
     }
 
     private fun registerAll(start: Path) {
-        Files.walk(start).use { stream -> stream.filter { Files.isDirectory(it) }.forEach { register(it) } }
+        Files.walk(start)
+            .use { paths -> paths.filter { Files.isDirectory(it) }.forEach { register(it) } }
     }
 
     private fun registerParentOfFile(file: Path) {
@@ -137,10 +155,18 @@ class FileIndexService(
     private fun watchLoop() {
         val ws = watchService ?: return
         while (watcherRunning.get()) {
-            val key = try { ws.take() } catch (_: InterruptedException) { break } catch (_: ClosedWatchServiceException) { break }
+            val key = try {
+                ws.take()
+            } catch (_: InterruptedException) {
+                break
+            } catch (_: ClosedWatchServiceException) {
+                break
+            }
 
             val directory = keyToDir[key]
-            if (directory == null) { key.reset(); continue }
+            if (directory == null) {
+                key.reset(); continue
+            }
 
             for (event in key.pollEvents()) {
                 val kind = event.kind()
@@ -155,7 +181,10 @@ class FileIndexService(
                     ENTRY_CREATE -> {
                         if (Files.isDirectory(child)) {
                             registerAll(child)
-                            Files.walk(child).use { stream -> stream.filter { Files.isRegularFile(it) }.forEach { scheduleIndex(it) } }
+                            Files.walk(child).use { pathStream ->
+                                pathStream.filter { Files.isRegularFile(it) }
+                                    .forEach { scheduleIndex(it) }
+                            }
                         } else scheduleIndex(child)
                     }
                     ENTRY_MODIFY -> scheduleIndex(child)
