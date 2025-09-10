@@ -108,10 +108,12 @@ class FileIndexService(
         val tokens = fileTokens.remove(path) ?: return
         for (token in tokens) {
             inverted[token]?.let { paths ->
-                paths.remove(path); if (paths.isEmpty()) inverted.remove(
-                token,
-                paths
-            )
+                paths.remove(path)
+
+                if (paths.isEmpty()) inverted.remove(
+                    token,
+                    paths
+                )
             }
         }
     }
